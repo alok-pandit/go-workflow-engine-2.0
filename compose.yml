@@ -1,0 +1,13 @@
+services:
+  valkey:
+    image: valkey/valkey:latest
+    restart: unless-stopped
+    network_mode: "host"
+    ports:
+      - "8429:8429" # Expose Valkey port
+    environment:
+      - VALKEY_DATA_DIR=/data # Set data directory
+    volumes:
+      - valkey-data:/data # Persistent storage for Valkey data
+volumes:
+  valkey-data: {} # Define an empty volume
