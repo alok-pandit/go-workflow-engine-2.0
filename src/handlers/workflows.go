@@ -46,7 +46,7 @@ func ExecuteProcess(process models.Process) {
 var StageMap map[string]*models.Stage
 
 func populateStageMap(sm map[string]*models.Stage, c int, process models.Process) {
-	if c < len(sm) {
+	if c <= len(sm) {
 		s := process.SequenceFlows[c]
 		sm[s.Source].Next = s.Target
 		if sm[s.Source].Type == "Gateway" {
