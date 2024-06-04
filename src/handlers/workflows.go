@@ -1,12 +1,14 @@
 package handlers
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/alok-pandit/go-workflow-engine-2.0/src/models"
+	workflows "github.com/alok-pandit/go-workflow-engine-2.0/src/workflow_definitions"
 )
 
 // ParseBPMN parses a BPMN file and returns a BPMN struct
@@ -19,12 +21,13 @@ func ParseBPMN(data []byte) (*models.BPMN, error) {
 func Build(filename string) models.Process {
 
 	data, err := os.ReadFile(filename)
+
 	if err != nil {
 		panic(err)
 	}
 
-	// Parse the BPMN data
 	bpmn, err := ParseBPMN(data)
+
 	if err != nil {
 		panic(err)
 	}
@@ -33,64 +36,125 @@ func Build(filename string) models.Process {
 
 }
 
-func ExecuteProcess(process models.Process) {
+func fileDirWalk() []string {
 
-	sm := buildStageList(process)
+	var subDirs []string
 
-	count := 0
+	rootDir := os.Getenv("WORKFLOW_ROOT")
 
-	populateStageMap(sm, count, process)
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && path != rootDir { // Ignore the starting directory
+			subDirs = append(subDirs, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		fmt.Println("Error walking directory:", err)
+		return nil
+	}
+
+	return subDirs
+
+}
+func Genesis() {
+
+	dirList := fileDirWalk()
+
+	for _, dir := range dirList {
+
+		procName := strings.Split(dir, "/")
+
+		process := Build(dir + "/" + procName[2] + ".bpmn")
+
+		sm := buildStageList(process)
+
+		count := 0
+
+		go populateStageMap(sm, count, process, procName[2])
+
+	}
 
 }
 
-var StageMap map[string]*models.Stage
+// func writeToJson(sm map[string]*models.Stage, dir string) error {
 
-func populateStageMap(sm map[string]*models.Stage, c int, process models.Process) {
+// 	// Marshal the map to JSON
+// 	jsonData, err := json.Marshal(sm)
+// 	if err != nil {
+// 		fmt.Println("Error marshalling map to JSON:", err)
+// 		return err
+// 	}
+
+// 	// Open the file for writing (with create if doesn't exist)
+// 	file, err := os.Create(os.Getenv("WORKFLOW_ROOT") + dir + "/" + dir + ".json")
+// 	if err != nil {
+// 		fmt.Println("Error creating file:", err)
+// 		return err
+// 	}
+// 	defer file.Close() // Close the file on exit
+
+// 	// Write the JSON data to the file
+// 	_, err = file.Write(jsonData)
+// 	if err != nil {
+// 		fmt.Println("Error writing JSON to file:", err)
+// 		return err
+// 	}
+
+// 	fmt.Println("Successfully wrote data to json")
+
+// 	return nil
+
+// }
+
+func populateStageMap(sm map[string]*models.Stage, c int, process models.Process, workflowDir string) {
+
 	if c <= len(sm) {
+
 		s := process.SequenceFlows[c]
-		sm[s.Source].Next = s.Target
+
 		if sm[s.Source].Type == "Gateway" {
 			if sm[s.Target].Name == "Success" {
 				sm[s.Source].Next = s.Target
-				if len(sm[s.Source].Failure) < 1 {
-				a:
-					for _, p := range process.IntermediateCatchEvents {
-						if p.ID != sm[s.Source].Next {
-							sm[s.Source].Failure = p.ID
-							break a
-						}
-					}
-				}
 			}
 			if sm[s.Target].Name == "Failure" {
 				sm[s.Source].Failure = s.Target
-				if len(sm[s.Source].Next) < 1 {
-				b:
-					for _, p := range process.IntermediateCatchEvents {
-						if p.ID != sm[s.Source].Failure {
-							sm[s.Source].Next = p.ID
-							break b
-						}
-					}
+			}
+		} else {
+			sm[s.Source].Next = s.Target
+		}
+
+		c = c + 1
+
+		populateStageMap(sm, c, process, workflowDir)
+
+	} else {
+
+		for k, v := range sm {
+			nextStage, ok := sm[v.Next]
+			if ok {
+				if nextStage.Type == "Gateway" {
+					sm[k].Next = sm[nextStage.Next].Next
+					sm[k].Failure = sm[nextStage.Failure].Next
 				}
 			}
 		}
-		c = c + 1
-		populateStageMap(sm, c, process)
-	} else {
-		b, err := json.MarshalIndent(sm, "", "  ")
 
-		if err != nil {
-			fmt.Println("error:", err)
-		}
+		workflows.Workflows[workflowDir] = sm
 
-		fmt.Println("Stage Map Rec: ", string(b))
+		node := workflows.BeginWFExecution("login")
 
-		StageMap = sm
+		fmt.Printf("%+v\n\n", node)
+
 	}
+
 }
 
 func buildStageList(process models.Process) map[string]*models.Stage {
+
 	stageMap := make(map[string]*models.Stage)
 
 	// Create stages for all tasks, gateways, start and end events

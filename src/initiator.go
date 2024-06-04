@@ -80,7 +80,7 @@ func Initialize() {
 
 	app.Use(healthcheck.New())
 
-	go handlers.ExecuteProcess(handlers.Build("src/workflow_definitions/login_workflow.bpmn"))
+	go handlers.Genesis()
 
 	log.Fatal(app.Listen(":" + os.Getenv("PORT")))
 
